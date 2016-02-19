@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	json "github.com/bitly/go-simplejson"
-	"github.com/codegangsta/cli"
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
-	"github.com/coreos/etcd/client"
-	"github.com/vulcand/oxy/forward"
-	"github.com/vulcand/oxy/roundrobin"
+	json "github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/bitly/go-simplejson"
+	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/codegangsta/cli"
+	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/coreos/etcd/client"
+	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/forward"
+	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/roundrobin"
+	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/golang.org/x/net/context"
 	"log"
 	"net/http"
 	"net/url"
