@@ -4,15 +4,13 @@ import (
 	"fmt"
 	json "github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/bitly/go-simplejson"
 	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/codegangsta/cli"
-	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/coreos/etcd/client"
 	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/forward"
 	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/roundrobin"
-	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/golang.org/x/net/context"
+	"github.com/beyondblog/k8s-router/k8s"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
-	"time"
 )
 
 func ParseURI(uri string) *url.URL {
@@ -23,30 +21,17 @@ func ParseURI(uri string) *url.URL {
 	return out
 }
 
-func StartProxy(port int, serviceName string, servicePort int) {
+func StartProxy(kubernetes *k8s.K8s, port int, serviceName string, servicePort int) {
 
 	fwd, _ := forward.New()
 	lb, _ := roundrobin.New(fwd)
 
-	cfg := client.Config{
-		Endpoints: []string{"http://master:4001"},
-		Transport: client.DefaultTransport,
-		// set timeout per request to fail fast when the target endpoint is unavailable
-		HeaderTimeoutPerRequest: time.Second,
-	}
-
-	c, err := client.New(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	kapi := client.NewKeysAPI(c)
-	resp, err := kapi.Get(context.Background(), "/registry/services/endpoints/default/"+serviceName, nil)
+	endpoints, err := kubernetes.GetNodeEnpoints(serviceName)
 	if err != nil {
 		log.Print("serverName not found!")
-		log.Fatal(err)
 	}
-	nodeJson, _ := json.NewJson([]byte(resp.Node.Value))
+
+	nodeJson, _ := json.NewJson([]byte(endpoints))
 
 	addresses, _ := nodeJson.Get("subsets").GetIndex(0).Get("addresses").Array()
 	for _, address := range addresses {
@@ -81,6 +66,7 @@ func main() {
 		port        int
 		serviceName string
 		servicePort int
+		etcdService string
 	)
 
 	app.Flags = []cli.Flag{
@@ -91,15 +77,21 @@ func main() {
 			Destination: &port,
 		},
 		cli.StringFlag{
-			Name:        "serviceName, s",
+			Name:        "service_name, s",
 			Usage:       "proxy kubernetes serviceName",
 			Destination: &serviceName,
 		},
 		cli.IntFlag{
-			Name:        "servicePort, sp",
+			Name:        "service_port, sp",
 			Value:       8080,
 			Usage:       "proxy kubernetes service port",
 			Destination: &servicePort,
+		},
+		cli.StringFlag{
+			Name:        "etcd_service, es",
+			Value:       "http://master:4001",
+			Usage:       "kubernetes etcd service",
+			Destination: &etcdService,
 		},
 	}
 
@@ -107,7 +99,13 @@ func main() {
 		if len(serviceName) == 0 {
 			log.Fatal("serverName is require!")
 		}
-		StartProxy(port, serviceName, servicePort)
+
+		kubernetes, err := k8s.New(etcdService)
+		if err != nil {
+			log.Fatal(" init k8s error ")
+		}
+
+		StartProxy(kubernetes, port, serviceName, servicePort)
 	}
 
 	app.Run(os.Args)
