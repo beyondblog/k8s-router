@@ -41,3 +41,15 @@ func (k *K8s) GetNodeEnpoints(serviceName string) (string, error) {
 
 	return resp.Node.Value, nil
 }
+
+func (k *K8s) WatcherEndpoints(serviceName string) (string, error) {
+
+	watcher := k.etcdKeysApi.Watcher("/registry/services/endpoints/default/"+serviceName, &client.WatcherOptions{})
+
+	resp, err := watcher.Next(context.Background())
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Node.Value, nil
+}

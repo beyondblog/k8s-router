@@ -21,6 +21,10 @@ func ParseURI(uri string) *url.URL {
 	return out
 }
 
+func WatchEndpoint() {
+
+}
+
 func StartProxy(kubernetes *k8s.K8s, port int, serviceName string, servicePort int) {
 
 	fwd, _ := forward.New()
@@ -41,6 +45,13 @@ func StartProxy(kubernetes *k8s.K8s, port int, serviceName string, servicePort i
 	}
 
 	addr := fmt.Sprintf(":%d", port)
+
+	go func(kubernetes *k8s.K8s, serviceName string) {
+		fmt.Println("watcher endpoints ...")
+		endpoints, _ := kubernetes.WatcherEndpoints(serviceName)
+		fmt.Println("endpoints:" + endpoints)
+
+	}(kubernetes, serviceName)
 
 	s := &http.Server{
 		Addr:    addr,
