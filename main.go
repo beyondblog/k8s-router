@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 )
 
 func ParseURI(uri string) *url.URL {
@@ -21,47 +22,75 @@ func ParseURI(uri string) *url.URL {
 	return out
 }
 
-func WatchEndpoint() {
+type endpointResponse struct {
+	resp string
+	err  error
+}
 
+func UpsertServer(lb *roundrobin.RoundRobin, endpoints string, servicePort int) {
+	nodeJson, _ := json.NewJson([]byte(endpoints))
+
+	subsets := nodeJson.Get("subsets").GetIndex(0)
+
+	if subsets.Interface() != nil {
+
+		addresses, _ := subsets.Get("addresses").Array()
+		for _, address := range addresses {
+			url := fmt.Sprintf("http://%s:%d", address.(map[string]interface{})["ip"].(string), servicePort)
+			fmt.Println("upsertServer: " + url)
+
+			lb.UpsertServer(ParseURI(url))
+		}
+	}
 }
 
 func StartProxy(kubernetes *k8s.K8s, port int, serviceName string, servicePort int) {
 
 	fwd, _ := forward.New()
 	lb, _ := roundrobin.New(fwd)
+	var mutex = &sync.Mutex{}
 
 	endpoints, err := kubernetes.GetNodeEnpoints(serviceName)
 	if err != nil {
 		log.Print("serverName not found!")
 	}
 
-	nodeJson, _ := json.NewJson([]byte(endpoints))
-
-	addresses, _ := nodeJson.Get("subsets").GetIndex(0).Get("addresses").Array()
-	for _, address := range addresses {
-		url := fmt.Sprintf("http://%s:%d", address.(map[string]interface{})["ip"].(string), servicePort)
-
-		lb.UpsertServer(ParseURI(url))
-	}
+	UpsertServer(lb, endpoints, servicePort)
 
 	addr := fmt.Sprintf(":%d", port)
 
-	go func(kubernetes *k8s.K8s, serviceName string) {
-		fmt.Println("watcher endpoints ...")
-		endpoints, _ := kubernetes.WatcherEndpoints(serviceName)
-		fmt.Println("endpoints:" + endpoints)
+	epchan := make(chan endpointResponse, 1)
 
-	}(kubernetes, serviceName)
+	go func(kubernetes *k8s.K8s) {
+		for {
+			fmt.Println("watcher endpoints ...")
+			endpoints, err := kubernetes.WatcherEndpoints(serviceName)
+			fmt.Println("endpoints:" + endpoints)
+			epchan <- endpointResponse{resp: endpoints, err: err}
+		}
+	}(kubernetes)
 
-	s := &http.Server{
-		Addr:    addr,
-		Handler: lb,
-	}
+	go func() {
+		s := &http.Server{
+			Addr:    addr,
+			Handler: lb,
+		}
 
-	log.Print("Listen " + addr)
+		log.Print("Listen " + addr)
 
-	if err := s.ListenAndServe(); err != nil {
-		log.Print("Listen Error!")
+		if err := s.ListenAndServe(); err != nil {
+			log.Print("Listen Error!")
+		}
+	}()
+
+	for {
+		select {
+		case rtresp := <-epchan:
+			resp := rtresp.resp
+			mutex.Lock()
+			UpsertServer(lb, resp, servicePort)
+			mutex.Unlock()
+		}
 	}
 
 }
