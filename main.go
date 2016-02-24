@@ -6,7 +6,9 @@ import (
 	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/codegangsta/cli"
 	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/forward"
 	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/roundrobin"
+	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/utils"
 	"github.com/beyondblog/k8s-router/k8s"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -28,7 +30,10 @@ type endpointResponse struct {
 }
 
 func UpsertServer(lb *roundrobin.RoundRobin, endpoints string, servicePort int) {
-	nodeJson, _ := json.NewJson([]byte(endpoints))
+	nodeJson, err := json.NewJson([]byte(endpoints))
+	if err != nil {
+		return
+	}
 
 	subsets := nodeJson.Get("subsets").GetIndex(0)
 
@@ -37,20 +42,22 @@ func UpsertServer(lb *roundrobin.RoundRobin, endpoints string, servicePort int) 
 		addresses, _ := subsets.Get("addresses").Array()
 		for _, address := range addresses {
 			url := fmt.Sprintf("http://%s:%d", address.(map[string]interface{})["ip"].(string), servicePort)
-			fmt.Println("upsertServer: " + url)
+			log.Print("upsertServer: " + url)
 
 			lb.UpsertServer(ParseURI(url))
 		}
 	}
 }
 
-func StartProxy(kubernetes *k8s.K8s, port int, serviceName string, servicePort int) {
+func StartProxy(kubernetes *k8s.K8s, port int, serviceName string, servicePort int, file io.Writer) {
 
-	fwd, _ := forward.New()
+	l := utils.NewFileLogger(file, utils.INFO)
+	fwd, _ := forward.New(forward.Logger(l))
 	lb, _ := roundrobin.New(fwd)
 	var mutex = &sync.Mutex{}
 
 	endpoints, err := kubernetes.GetNodeEnpoints(serviceName)
+
 	if err != nil {
 		log.Print("serverName not found!")
 	}
@@ -63,9 +70,9 @@ func StartProxy(kubernetes *k8s.K8s, port int, serviceName string, servicePort i
 
 	go func(kubernetes *k8s.K8s) {
 		for {
-			fmt.Println("watcher endpoints ...")
+			log.Print("watcher endpoints ...")
 			endpoints, err := kubernetes.WatcherEndpoints(serviceName)
-			fmt.Println("endpoints:" + endpoints)
+			log.Print("endpoints:" + endpoints)
 			epchan <- endpointResponse{resp: endpoints, err: err}
 		}
 	}(kubernetes)
@@ -107,6 +114,7 @@ func main() {
 		serviceName string
 		servicePort int
 		etcdService string
+		logFile     string
 	)
 
 	app.Flags = []cli.Flag{
@@ -133,6 +141,12 @@ func main() {
 			Usage:       "kubernetes etcd service",
 			Destination: &etcdService,
 		},
+		cli.StringFlag{
+			Name:        "log, l",
+			Value:       "router.log",
+			Usage:       "logs",
+			Destination: &logFile,
+		},
 	}
 
 	app.Action = func(c *cli.Context) {
@@ -145,7 +159,16 @@ func main() {
 			log.Fatal(" init k8s error ")
 		}
 
-		StartProxy(kubernetes, port, serviceName, servicePort)
+		//init log file
+		f, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatal("error opening file: %v", err)
+		}
+		defer f.Close()
+
+		log.SetOutput(f)
+
+		StartProxy(kubernetes, port, serviceName, servicePort, f)
 	}
 
 	app.Run(os.Args)

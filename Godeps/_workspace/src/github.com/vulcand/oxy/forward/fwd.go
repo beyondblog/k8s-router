@@ -105,15 +105,15 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if req.TLS != nil {
-		f.log.Infof("Round trip: %v, code: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
-			req.URL, response.StatusCode, time.Now().UTC().Sub(start),
+		f.log.Infof("%v , %v, method: %v , code: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
+			req.Host, req.RequestURI, req.Method, response.StatusCode, time.Now().UTC().Sub(start),
 			req.TLS.Version,
 			req.TLS.DidResume,
 			req.TLS.CipherSuite,
 			req.TLS.ServerName)
 	} else {
-		f.log.Infof("Round trip: %v, code: %v, duration: %v",
-			req.URL, response.StatusCode, time.Now().UTC().Sub(start))
+		f.log.Infof("%v , %v, method: %v , code: %v, duration: %v",
+			req.Host, req.RequestURI, req.Method, response.StatusCode, time.Now().UTC().Sub(start))
 	}
 
 	utils.CopyHeaders(w.Header(), response.Header)
