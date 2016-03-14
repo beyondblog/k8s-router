@@ -166,8 +166,6 @@ func main() {
 		}
 		defer f.Close()
 
-		log.SetOutput(f)
-
 		StartProxy(kubernetes, port, serviceName, servicePort, f)
 	}
 

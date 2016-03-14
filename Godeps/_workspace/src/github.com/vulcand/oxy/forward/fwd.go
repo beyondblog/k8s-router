@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/beyondblog/k8s-router/Godeps/_workspace/src/github.com/vulcand/oxy/utils"
@@ -97,32 +98,39 @@ func New(setters ...optSetter) (*Forwarder, error) {
 
 func (f *Forwarder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	start := time.Now().UTC()
-	response, err := f.httpClient.Do(f.copyRequest(req, req.URL))
+	res, err := f.httpClient.Do(f.copyRequest(req, req.URL))
 	if err != nil {
 		f.log.Errorf("Error forwarding to %v, err: %v", req.URL, err)
 		f.errHandler.ServeHTTP(w, req, err)
 		return
 	}
 
+	utils.CopyHeaders(w.Header(), res.Header)
+	w.WriteHeader(res.StatusCode)
+	written, _ := io.Copy(w, res.Body)
+	contentLength := strconv.FormatInt(written, 10)
+	if written != 0 {
+		w.Header().Set(ContentLength, contentLength)
+	}
+
+	remoteIp := req.RemoteAddr[:strings.Index(req.RemoteAddr, ":")]
+
 	if req.TLS != nil {
 		f.log.Infof("%v , %v, method: %v , code: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
-			req.URL, req.RequestURI, req.Method, response.StatusCode, time.Now().UTC().Sub(start),
+			req.URL, req.RequestURI, req.Method, res.StatusCode, time.Now().UTC().Sub(start),
 			req.TLS.Version,
 			req.TLS.DidResume,
 			req.TLS.CipherSuite,
 			req.TLS.ServerName)
 	} else {
-		f.log.Infof("%v , %v, method: %v , code: %v, duration: %v",
-			req.URL, req.RequestURI, req.Method, response.StatusCode, time.Now().UTC().Sub(start))
+		f.log.Infof("%v \"%v %v %v\" %d %v %s %v %v",
+			remoteIp, req.Method, req.RequestURI, req.Proto, res.StatusCode, contentLength,
+			req.Header["User-Agent"][0],
+			req.URL.Host,
+			time.Now().UTC().Sub(start))
 	}
 
-	utils.CopyHeaders(w.Header(), response.Header)
-	w.WriteHeader(response.StatusCode)
-	written, _ := io.Copy(w, response.Body)
-	if written != 0 {
-		w.Header().Set(ContentLength, strconv.FormatInt(written, 10))
-	}
-	response.Body.Close()
+	res.Body.Close()
 }
 
 func (f *Forwarder) copyRequest(req *http.Request, u *url.URL) *http.Request {

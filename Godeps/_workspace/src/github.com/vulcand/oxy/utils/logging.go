@@ -22,7 +22,7 @@ type FileLogger struct {
 
 func NewFileLogger(w io.Writer, lvl LogLevel) *FileLogger {
 	l := &FileLogger{}
-	flag := log.Ldate | log.Ltime | log.Lmicroseconds
+	flag := log.Ldate | log.Ltime
 	if lvl <= INFO {
 		l.info = log.New(w, "INFO: ", flag)
 	}
